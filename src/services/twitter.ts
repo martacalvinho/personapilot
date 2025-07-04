@@ -1,111 +1,228 @@
-export interface TwitterOAuthConfig {
-  clientId: string;
-  redirectUri: string;
+import { supabase } from '../lib/supabase';
+import { twitterAuthService } from './auth';
+
+export interface TwitterUser {
+  id: string;
+  username: string;
+  name: string;
+  profile_image_url: string;
+  verified?: boolean;
 }
 
-export class TwitterAuthService {
-  private config: TwitterOAuthConfig;
+export interface TwitterTweet {
+  id: string;
+  text: string;
+  author_id: string;
+  created_at: string;
+  public_metrics?: {
+    retweet_count: number;
+    like_count: number;
+    reply_count: number;
+  };
+  in_reply_to_user_id?: string;
+  referenced_tweets?: Array<{
+    type: string;
+    id: string;
+  }>;
+}
 
-  constructor() {
-    this.config = {
-      clientId: '1941139719099924480',
-      clientSecret: 'XxYsGSRd5y4oYSlSWvw9epwdNXc1pvPAtCqu3RxPDOvJlkjZ6t',
-    };
-  }
+export class TwitterService {
+  async getCurrentUser(): Promise<TwitterUser | null> {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
 
-  generateCodeVerifier(): string {
-    const array = new Uint8Array(32);
-    crypto.getRandomValues(array);
-    return btoa(String.fromCharCode.apply(null, Array.from(array)))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
-  }
+      const { data: userData, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single();
 
-  async generateCodeChallenge(verifier: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(verifier);
-    const digest = await crypto.subtle.digest('SHA-256', data);
-    return btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(digest))))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
-  }
+      if (error || !userData) return null;
 
-  async initiateOAuth(): Promise<void> {
-    const codeVerifier = this.generateCodeVerifier();
-    const codeChallenge = await this.generateCodeChallenge(codeVerifier);
-    
-    // Store code verifier for later use
-    sessionStorage.setItem('twitter_code_verifier', codeVerifier);
-    
-    const params = new URLSearchParams({
-      response_type: 'code',
-      client_id: this.config.clientId,
-      redirect_uri: this.config.redirectUri,
-      scope: 'tweet.read users.read tweet.write offline.access follows.read',
-      state: crypto.randomUUID(),
-      code_challenge: codeChallenge,
-      code_challenge_method: 'S256'
-    });
-
-    const authUrl = `https://twitter.com/i/oauth2/authorize?${params.toString()}`;
-    console.log('Redirecting to:', authUrl);
-    console.log('Redirecting to:', authUrl);
-    window.location.href = authUrl;
-  }
-
-  async handleCallback(code: string, state: string): Promise<any> {
-    const codeVerifier = sessionStorage.getItem('twitter_code_verifier');
-    if (!codeVerifier) {
-      throw new Error('Code verifier not found');
+      return {
+        id: userData.twitter_id,
+        username: userData.username,
+        name: userData.display_name,
+        profile_image_url: userData.profile_image,
+        verified: userData.verified
+      };
+    } catch (error) {
+      console.error('Error getting current user:', error);
+      return null;
     }
+  }
 
-    console.log('Exchanging code for token...');
-    
-    console.log('Exchanging code for token via Supabase Edge Function...');
-      const errorText = await tokenResponse.text();
-      console.error('Token exchange failed:', errorText);
-      throw new Error(`Failed to exchange code for token: ${errorText}`);
-    // Call our secure Supabase Edge Function instead of Twitter directly
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const functionUrl = `${supabaseUrl}/functions/v1/twitter-auth`;
-    console.log('Tokens received:', { access_token: !!tokens.access_token });
-    
-    const response = await fetch(functionUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Basic ${btoa(`${this.config.clientId}:${this.config.clientSecret}`)}`,
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({
-        code,
-        codeVerifier,
-        'Authorization': `Bearer ${tokens.access_token}`,
-        'Accept': 'application/json'
-      })
-    });
+  async saveUserData(twitterUser: TwitterUser): Promise<void> {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No authenticated user');
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Edge function failed:', errorData);
-      const errorText = await userResponse.text();
-      console.error('User info failed:', errorText);
-      throw new Error(`Failed to get user info: ${errorText}`);
+      const { error } = await supabase
+        .from('users')
+        .upsert({
+          id: user.id,
+          twitter_id: twitterUser.id,
+          username: twitterUser.username,
+          display_name: twitterUser.name,
+          profile_image: twitterUser.profile_image_url,
+          verified: twitterUser.verified || false,
+          updated_at: new Date().toISOString()
+        });
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error saving user data:', error);
+      throw error;
     }
+  }
 
-    const data = await response.json();
-    console.log('Tokens received from edge function:', { access_token: !!data.tokens.access_token });
-    
-    // Clean up
-    sessionStorage.removeItem('twitter_code_verifier');
-    
-    return {
-      tokens: data.tokens,
-      user: data.user
-    };
+  async getUserPersona(): Promise<any | null> {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+
+      const { data: persona, error } = await supabase
+        .from('personas')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching persona:', error);
+        return null;
+      }
+
+      return persona;
+    } catch (error) {
+      console.error('Error getting user persona:', error);
+      return null;
+    }
+  }
+
+  async saveUserPersona(persona: {
+    tone: string;
+    main_topics: string[];
+    interaction_style: string;
+    identity: string;
+    confidence: number;
+  }): Promise<void> {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No authenticated user');
+
+      const { error } = await supabase
+        .from('personas')
+        .upsert({
+          user_id: user.id,
+          ...persona,
+          updated_at: new Date().toISOString()
+        });
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error saving persona:', error);
+      throw error;
+    }
+  }
+
+  async getEngagementSuggestions(): Promise<any[]> {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+
+      const { data: suggestions, error } = await supabase
+        .from('engagement_suggestions')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) {
+        console.error('Error fetching suggestions:', error);
+        return [];
+      }
+
+      return suggestions || [];
+    } catch (error) {
+      console.error('Error getting engagement suggestions:', error);
+      return [];
+    }
+  }
+
+  async updateSuggestionStatus(suggestionId: string, status: 'approved' | 'rejected' | 'posted'): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('engagement_suggestions')
+        .update({ 
+          status,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', suggestionId);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error updating suggestion status:', error);
+      throw error;
+    }
+  }
+
+  async saveTweet(tweet: TwitterTweet, userId: string): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('tweets')
+        .upsert({
+          user_id: userId,
+          tweet_id: tweet.id,
+          text: tweet.text,
+          likes: tweet.public_metrics?.like_count || 0,
+          retweets: tweet.public_metrics?.retweet_count || 0,
+          replies: tweet.public_metrics?.reply_count || 0,
+          is_reply: !!tweet.in_reply_to_user_id,
+          reply_to_id: tweet.referenced_tweets?.find(ref => ref.type === 'replied_to')?.id || null,
+          created_at: tweet.created_at
+        });
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error saving tweet:', error);
+      throw error;
+    }
+  }
+
+  async getUserTweets(): Promise<any[]> {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+
+      const { data: tweets, error } = await supabase
+        .from('tweets')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (error) {
+        console.error('Error fetching tweets:', error);
+        return [];
+      }
+
+      return tweets || [];
+    } catch (error) {
+      console.error('Error getting user tweets:', error);
+      return [];
+    }
+  }
+
+  // Delegate authentication to the auth service
+  async initiateAuth(): Promise<void> {
+    return twitterAuthService.initiateOAuth();
+  }
+
+  async handleAuthCallback(code: string, state: string): Promise<any> {
+    return twitterAuthService.handleCallback(code, state);
   }
 }
 
-export const twitterAuthService = new TwitterAuthService();
+export const twitterService = new TwitterService();
