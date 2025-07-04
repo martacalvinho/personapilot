@@ -1,6 +1,5 @@
 export interface TwitterOAuthConfig {
   clientId: string;
-  clientSecret: string;
   redirectUri: string;
 }
 
@@ -11,7 +10,6 @@ export class TwitterAuthService {
     this.config = {
       clientId: '1941139719099924480',
       clientSecret: 'XxYsGSRd5y4oYSlSWvw9epwdNXc1pvPAtCqu3RxPDOvJlkjZ6t',
-      redirectUri: `${window.location.origin}/auth/callback`
     };
   }
 
@@ -65,62 +63,47 @@ export class TwitterAuthService {
 
     console.log('Exchanging code for token...');
     
-    console.log('Exchanging code for token...');
-    
-    const tokenResponse = await fetch('https://api.twitter.com/2/oauth2/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${btoa(`${this.config.clientId}:${this.config.clientSecret}`)}`,
-        'Accept': 'application/json'
-        'Accept': 'application/json'
-      },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: this.config.redirectUri,
-        code_verifier: codeVerifier
-      })
-    });
-
-    if (!tokenResponse.ok) {
+    console.log('Exchanging code for token via Supabase Edge Function...');
       const errorText = await tokenResponse.text();
       console.error('Token exchange failed:', errorText);
       throw new Error(`Failed to exchange code for token: ${errorText}`);
-      console.error('Token exchange failed:', errorText);
-      throw new Error(`Failed to exchange code for token: ${errorText}`);
-    }
-
-    const tokens = await tokenResponse.json();
-    console.log('Tokens received:', { access_token: !!tokens.access_token });
+    // Call our secure Supabase Edge Function instead of Twitter directly
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const functionUrl = `${supabaseUrl}/functions/v1/twitter-auth`;
     console.log('Tokens received:', { access_token: !!tokens.access_token });
     
-    // Get user info from Twitter
-    const userResponse = await fetch('https://api.twitter.com/2/users/me?user.fields=profile_image_url,verified', {
+    const response = await fetch(functionUrl, {
+      method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${btoa(`${this.config.clientId}:${this.config.clientSecret}`)}`,
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        code,
+        codeVerifier,
         'Authorization': `Bearer ${tokens.access_token}`,
         'Accept': 'application/json'
-        'Accept': 'application/json'
-      }
+      })
     });
 
-    if (!userResponse.ok) {
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Edge function failed:', errorData);
       const errorText = await userResponse.text();
       console.error('User info failed:', errorText);
       throw new Error(`Failed to get user info: ${errorText}`);
-      console.error('User info failed:', errorText);
-      throw new Error(`Failed to get user info: ${errorText}`);
     }
 
-    const userData = await userResponse.json();
-    console.log('User data received:', userData.data?.username);
+    const data = await response.json();
+    console.log('Tokens received from edge function:', { access_token: !!data.tokens.access_token });
     
     // Clean up
     sessionStorage.removeItem('twitter_code_verifier');
     
     return {
-      tokens,
-      user: userData.data
+      tokens: data.tokens,
+      user: data.user
     };
   }
 }
