@@ -109,3 +109,5 @@ export class TwitterAuthService {
 }
 
 export const twitterAuthService = new TwitterAuthService();
+
+export default twitterAuthService
