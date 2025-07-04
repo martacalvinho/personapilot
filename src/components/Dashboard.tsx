@@ -1,113 +1,199 @@
-export interface TwitterOAuthConfig {
-  clientId: string;
-  redirectUri: string;
-}
+import React, { useState, useEffect } from 'react';
+import { User, Twitter, MessageCircle, TrendingUp, Settings, LogOut } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import AuthModal from './AuthModal';
+import PersonaSetup from './PersonaSetup';
 
-export class TwitterAuthService {
-  private config: TwitterOAuthConfig;
+interface DashboardProps {}
 
-  constructor() {
-    this.config = {
-      clientId: '1941139719099924480',
-      clientSecret: 'XxYsGSRd5y4oYSlSWvw9epwdNXc1pvPAtCqu3RxPDOvJlkjZ6t',
-    };
-  }
+const Dashboard: React.FC<DashboardProps> = () => {
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showPersonaSetup, setShowPersonaSetup] = useState(false);
 
-  generateCodeVerifier(): string {
-    const array = new Uint8Array(32);
-    crypto.getRandomValues(array);
-    return btoa(String.fromCharCode.apply(null, Array.from(array)))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
-  }
+  useEffect(() => {
+    checkUser();
+  }, []);
 
-  async generateCodeChallenge(verifier: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(verifier);
-    const digest = await crypto.subtle.digest('SHA-256', data);
-    return btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(digest))))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
-  }
-
-  async initiateOAuth(): Promise<void> {
-    const codeVerifier = this.generateCodeVerifier();
-    const codeChallenge = await this.generateCodeChallenge(codeVerifier);
-    
-    // Store code verifier for later use
-    sessionStorage.setItem('twitter_code_verifier', codeVerifier);
-    
-    const params = new URLSearchParams({
-      response_type: 'code',
-      client_id: this.config.clientId,
-      redirect_uri: this.config.redirectUri,
-      scope: 'tweet.read users.read tweet.write offline.access follows.read',
-      state: crypto.randomUUID(),
-      code_challenge: codeChallenge,
-      code_challenge_method: 'S256'
-    });
-
-    const authUrl = `https://twitter.com/i/oauth2/authorize?${params.toString()}`;
-    console.log('Redirecting to:', authUrl);
-    console.log('Redirecting to:', authUrl);
-    window.location.href = authUrl;
-  }
-
-  async handleCallback(code: string, state: string): Promise<any> {
-    const codeVerifier = sessionStorage.getItem('twitter_code_verifier');
-    if (!codeVerifier) {
-      throw new Error('Code verifier not found');
+  const checkUser = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error checking user:', error);
+      setLoading(false);
     }
+  };
 
-    console.log('Exchanging code for token...');
-    
-    console.log('Exchanging code for token via Supabase Edge Function...');
-      const errorText = await tokenResponse.text();
-      console.error('Token exchange failed:', errorText);
-      throw new Error(`Failed to exchange code for token: ${errorText}`);
-    // Call our secure Supabase Edge Function instead of Twitter directly
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const functionUrl = `${supabaseUrl}/functions/v1/twitter-auth`;
-    console.log('Tokens received:', { access_token: !!tokens.access_token });
-    
-    const response = await fetch(functionUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Basic ${btoa(`${this.config.clientId}:${this.config.clientSecret}`)}`,
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({
-        code,
-        codeVerifier,
-        'Authorization': `Bearer ${tokens.access_token}`,
-        'Accept': 'application/json'
-      })
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Edge function failed:', errorData);
-      const errorText = await userResponse.text();
-      console.error('User info failed:', errorText);
-      throw new Error(`Failed to get user info: ${errorText}`);
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+    } catch (error) {
+      console.error('Error signing out:', error);
     }
+  };
 
-    const data = await response.json();
-    console.log('Tokens received from edge function:', { access_token: !!data.tokens.access_token });
-    
-    // Clean up
-    sessionStorage.removeItem('twitter_code_verifier');
-    
-    return {
-      tokens: data.tokens,
-      user: data.user
-    };
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    );
   }
-}
 
-export const twitterAuthService = new TwitterAuthService();
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+        <div className="container mx-auto px-4 py-16">
+          <div className="max-w-4xl mx-auto text-center">
+            <div className="mb-8">
+              <Twitter className="w-16 h-16 text-indigo-600 mx-auto mb-4" />
+              <h1 className="text-4xl font-bold text-gray-900 mb-4">
+                Twitter Engagement Assistant
+              </h1>
+              <p className="text-xl text-gray-600 mb-8">
+                AI-powered suggestions to boost your Twitter engagement and grow your audience
+              </p>
+            </div>
 
-export default twitterAuthService
+            <div className="grid md:grid-cols-3 gap-8 mb-12">
+              <div className="bg-white p-6 rounded-xl shadow-lg">
+                <MessageCircle className="w-12 h-12 text-indigo-600 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">Smart Replies</h3>
+                <p className="text-gray-600">Get AI-generated reply suggestions that match your voice and style</p>
+              </div>
+              <div className="bg-white p-6 rounded-xl shadow-lg">
+                <TrendingUp className="w-12 h-12 text-indigo-600 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">Engagement Analytics</h3>
+                <p className="text-gray-600">Track your engagement metrics and optimize your content strategy</p>
+              </div>
+              <div className="bg-white p-6 rounded-xl shadow-lg">
+                <User className="w-12 h-12 text-indigo-600 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">Personal Brand</h3>
+                <p className="text-gray-600">Build a consistent personal brand with AI-powered content suggestions</p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-8 rounded-lg transition-colors duration-200 shadow-lg hover:shadow-xl"
+            >
+              Get Started
+            </button>
+          </div>
+        </div>
+
+        {showAuthModal && (
+          <AuthModal onClose={() => setShowAuthModal(false)} />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <Twitter className="w-8 h-8 text-indigo-600" />
+              <h1 className="text-xl font-bold text-gray-900">Engagement Assistant</h1>
+            </div>
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => setShowPersonaSetup(true)}
+                className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                <Settings className="w-5 h-5" />
+                <span>Settings</span>
+              </button>
+              <button
+                onClick={handleSignOut}
+                className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                <LogOut className="w-5 h-5" />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="container mx-auto px-4 py-8">
+        <div className="max-w-6xl mx-auto">
+          <div className="mb-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome back!</h2>
+            <p className="text-gray-600">Here's your engagement dashboard</p>
+          </div>
+
+          {/* Stats Cards */}
+          <div className="grid md:grid-cols-4 gap-6 mb-8">
+            <div className="bg-white p-6 rounded-xl shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Total Suggestions</p>
+                  <p className="text-2xl font-bold text-gray-900">24</p>
+                </div>
+                <MessageCircle className="w-8 h-8 text-indigo-600" />
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Engagement Rate</p>
+                  <p className="text-2xl font-bold text-gray-900">12.5%</p>
+                </div>
+                <TrendingUp className="w-8 h-8 text-green-600" />
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Replies Sent</p>
+                  <p className="text-2xl font-bold text-gray-900">18</p>
+                </div>
+                <Twitter className="w-8 h-8 text-blue-600" />
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Success Rate</p>
+                  <p className="text-2xl font-bold text-gray-900">89%</p>
+                </div>
+                <User className="w-8 h-8 text-purple-600" />
+              </div>
+            </div>
+          </div>
+
+          {/* Recent Suggestions */}
+          <div className="bg-white rounded-xl shadow-sm">
+            <div className="p-6 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Recent Suggestions</h3>
+            </div>
+            <div className="p-6">
+              <div className="text-center py-12">
+                <MessageCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-500 mb-4">No suggestions yet</p>
+                <p className="text-sm text-gray-400">
+                  Connect your Twitter account to start receiving engagement suggestions
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {showPersonaSetup && (
+        <PersonaSetup onClose={() => setShowPersonaSetup(false)} />
+      )}
+    </div>
+  );
+};
+
+export default Dashboard;
